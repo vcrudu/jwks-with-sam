@@ -1,0 +1,175 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: credentials-flow
+Transform:
+- AWS::Serverless-2016-10-31
+
+Parameters:
+  Environment:
+    Type: String
+    Default: test
+    AllowedValues:
+    - test
+    - prod
+    Description: The environment to deploy to.
+  Frequency:
+    Type: Number
+    Default: 1
+    Description: The frequency to rotate the keys in days
+
+# Resources declares the AWS resources that you want to include in the stack
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/resources-section-structure.html
+Resources:
+  # Each Lambda function is defined by properties:
+  # https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+
+  # This is a Lambda function config associated with the source code: get-all-items.js
+  GenerateKeyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/generate-key.handler
+      FunctionName: !Sub GenerateKeyFunction-${Environment}
+      Runtime: nodejs18.x
+      Architectures:
+      - x86_64
+      MemorySize: 128
+      Timeout: 100
+      Role: !GetAtt GenerateKeyFunctionRole.Arn
+      Description: A simple example includes a HTTP get method to get all items from
+        a DynamoDB table.
+      Policies:
+        # Give Create/Read/Update/Delete Permissions to the JwtKeysDataTable
+      - DynamoDBCrudPolicy:
+          TableName: !Ref JwtKeysDataTable
+      Environment:
+        Variables:
+          # Make table name accessible as environment variable from function code during execution
+          JWT_KEYS_DATA_TABLE: !Ref JwtKeysDataTable
+      Events:
+        CWSchedule:
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: !Sub rate(${Frequency} day)
+            Name: ScheduleKeyRotation
+            Description: Schedule key rotation
+
+  GenerateKeyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CreateKeyPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms: CreateKey
+                  - kms: CreateAlias
+                Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::Account}:key/*'
+
+
+  # Each Lambda function is defined by properties:
+  # https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+
+  # This is a Lambda function config associated with the source code: get-by-id.js
+  GetJWKSFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: dist/get-jwks.handler
+      Runtime: nodejs18.x
+      FunctionName: GetJWKSFunction-${!Ref Environment}
+      Architectures:
+      - x86_64
+      MemorySize: 128
+      Timeout: 100
+      Description: A simple example includes a HTTP get method to get one item by
+        id from a DynamoDB table.
+      Policies:
+        # Give Create/Read/Update/Delete Permissions to the JwtKeysDataTable
+      - DynamoDBCrudPolicy:
+          TableName: !Ref JwtKeysDataTable
+      Environment:
+        Variables:
+          # Make table name accessible as environment variable from function code during execution
+          JWT_KEYS_DATA_TABLE: !Ref JwtKeysDataTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /.well-known/jwks.json
+            Method: GET
+
+  GetJWKSFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: ReadKeyPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms: DescribeKey
+                  - kms: GetPublicKey
+                Resource: !Sub 'arn:aws:kms:${AWS::Region}:${AWS::Account}:key/*'
+  
+  # DynamoDB table to store item: {id: &lt;ID&gt;, name: &lt;NAME&gt;}
+  JwtKeysDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub JwtKeysDataTable-${Environment}
+      AttributeDefinitions:
+        - AttributeName: prefix
+          AttributeType: S
+        - AttributeName: version
+          AttributeType: N
+      KeySchema:
+        - AttributeName: prefix
+          KeyType: HASH
+        - AttributeName: version
+          KeyType: RANGE
+      ProvisionedThroughput:
+        ReadCapacityUnits: 2
+        WriteCapacityUnits: 2
+
+  ApplicationResourceGroup:
+    Type: AWS::ResourceGroups::Group
+    Properties:
+      Name:
+        Fn::Sub: ApplicationInsights-SAM-${AWS::StackName}
+      ResourceQuery:
+        Type: CLOUDFORMATION_STACK_1_0
+  ApplicationInsightsMonitoring:
+    Type: AWS::ApplicationInsights::Application
+    Properties:
+      ResourceGroupName:
+        Ref: ApplicationResourceGroup
+      AutoConfigurationEnabled: 'true'
+
+Outputs:
+  WebEndpoint:
+    Description: API Gateway endpoint URL for environment
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/"
+# # More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Tracing: Active
+  Api:
+    TracingEnabled: true
