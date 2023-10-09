@@ -28,13 +28,13 @@ export const handler = async () => {
 
     const queryResult = await documentClient.send(queryCommand);
 
-    let currentVersion = 0;
+    let currentVersion = 1;
     if (
       queryResult.Items &&
       queryResult.Items.length > 0 &&
       queryResult.Items[0]
     ) {
-      currentVersion = parseInt(queryResult.Items[0].version || "0", 10);
+      currentVersion = parseInt(queryResult.Items[0].version || 1, 10);
     }
 
     const { KeyMetadata } = await kmsClient.send(
@@ -55,7 +55,7 @@ export const handler = async () => {
     await kmsClient.send(
       new CreateAliasCommand({
         TargetKeyId: KeyMetadata.KeyId,
-        AliasName: `${PREFIX}_v${newVersion}`,
+        AliasName: `alias/${PREFIX}-${newVersion}`,
       })
     );
 
@@ -65,7 +65,7 @@ export const handler = async () => {
         TableName: JWT_KEYS_DATA_TABLE,
         Item: {
           prefix: PREFIX,
-          version: newVersion.toString(),
+          version: newVersion,
           keyId: KeyMetadata.KeyId,
           expirationDate: new Date(
             Date.now() + 45 * 24 * 60 * 60 * 1000

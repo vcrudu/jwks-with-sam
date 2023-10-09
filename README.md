@@ -22,7 +22,8 @@ This solution provides a JWKS (JSON Web Key Set) public endpoint and automates t
 1. **Deploying the Solution**:
    - Ensure you have AWS SAM CLI installed.
    - Navigate to the project root directory.
-   - Run `sam build` to build the solution.
+   - Run `pnpm i` to install the npm packages.
+   - Run `pnpm run build` to build the solution.
    - Deploy the solution using `sam deploy --guided`.
 
 2. **Accessing the JWKS Endpoint**:

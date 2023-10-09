@@ -17,6 +17,11 @@ lint = true
 capabilities = "CAPABILITY_IAM"
 confirm_changeset = true
 resolve_s3 = true
+stack_name = "test-oauth-jwks"
+s3_prefix = "test-oauth-jwks"
+region = "eu-west-2"
+parameter_overrides = "Environment=\"test\" Frequency=\"1\""
+image_repositories = []
 
 [default.package.parameters]
 resolve_s3 = true
@@ -29,3 +34,12 @@ warm_containers = "EAGER"
 
 [default.local_start_lambda.parameters]
 warm_containers = "EAGER"
+[test.deploy.parameters]
+stack_name = "test-oauth-jwks"
+resolve_s3 = true
+s3_prefix = "test-oauth-jwks"
+region = "eu-west-2"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+parameter_overrides = "Environment=\"test\" Frequency=\"1\""
+image_repositories = []

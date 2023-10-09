@@ -9,7 +9,7 @@ import {
   GetPublicKeyCommandInput,
   GetPublicKeyCommandOutput,
 } from "@aws-sdk/client-kms";
-import * as jose from "jose";
+import * as jose from "node-jose";
 
 const dynamoDbClient = new DynamoDBClient({});
 const documentClient = DynamoDBDocumentClient.from(dynamoDbClient);
@@ -33,33 +33,45 @@ export const handler = async () => {
       })
     );
 
+    console.log("Items:", Items);
+
     if (!Items) {
       throw new Error("Failed to fetch keys from DynamoDB");
     }
 
-    const jwks: jose.JSONWebKeySet = {
-      keys: [],
-    };
+    const keystore = jose.JWK.createKeyStore();
 
     for (const keyDataItem of Items) {
       const currentDate = new Date();
-      const keyExpirationDate = new Date(keyDataItem.expirationDate!.S!); // Assuming expirationDate is stored as a string in ISO format
+      const keyExpirationDate = new Date(keyDataItem.expirationDate); // Assuming expirationDate is stored as a string in ISO format
 
+      console.log("Current date:", currentDate);
+      console.log("Key expiration date:", keyExpirationDate);
+      console.log("currentDate <= keyExpirationDate:", currentDate <= keyExpirationDate);
       // If the key is not expired or it's the latest key, add it to the JWKS
       if (currentDate <= keyExpirationDate) {
         const keyOutput = await kmsClient.send<
           GetPublicKeyCommandInput,
           GetPublicKeyCommandOutput
-        >(new GetPublicKeyCommand({ KeyId: `$` }));
+        >(new GetPublicKeyCommand({ KeyId: keyDataItem.keyId }));
 
+
+        console.log("Key output:", keyOutput);
         if (keyOutput && keyOutput.PublicKey) {
-          const jwk = await jose.exportJWK(keyOutput.PublicKey);
-          jwks.keys.push(jwk);
+          const publicKey = Buffer.from(keyOutput.PublicKey);
+
+          await keystore.add(publicKey, 'spki', {
+            alg: 'RS512',
+            use: 'sig',
+          });
         } else {
           throw new Error("Failed to fetch public key from KMS");
         }
       }
     }
+
+    const body = JSON.stringify(keystore.toJSON())
+    console.log("JWKS:", body);
 
     return {
       statusCode: 200,
@@ -67,7 +79,7 @@ export const handler = async () => {
         "Content-Type": "application/json",
         "Content-Disposition": "attachment; filename=jwks.json",
       },
-      body: JSON.stringify(jwks),
+      body: body,
     };
   } catch (error) {
     console.error("Error fetching JWKS:", error);
