@@ -11,12 +11,66 @@ Parameters:
     - test
     - prod
     Description: The environment to deploy to.
-  Frequency:
+  KeyRotationFrequency:
     Type: Number
     Default: 1
     Description: The frequency to rotate the keys in days
+  TokenUrl:
+    Type: String
+    Description: The URL to request a token from
 
 Resources:
+  GetTokenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/get-token
+      Handler: main.handler
+      Runtime: nodejs18.x
+      FunctionName: !Sub GetTokenFunction-${Environment}
+      Architectures:
+      - x86_64
+      MemorySize: 128
+      Timeout: 100
+      Role: !GetAtt GetTokenFunctionCustomRole.Arn
+      Description: The lambda function to test JWT generation and token request.
+      Environment:
+        Variables:
+          JWT_KEYS_DATA_TABLE: !Ref JwtKeysDataTable
+          TOKEN_URL: !Ref TokenUrl
+
+  GetTokenFunctionCustomRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: SignPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'dynamodb:Query'
+                Resource: !GetAtt JwtKeysDataTable.Arn
+              - Effect: Allow
+                Action:
+                  - 'kms:Sign'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
+
+
   # This is a Lambda function config associated with the source code: generate-key.ts
   GenerateKeyFunction:
     Type: AWS::Serverless::Function
@@ -36,11 +90,12 @@ Resources:
         Variables:
           # Make table name accessible as environment variable from function code during execution
           JWT_KEYS_DATA_TABLE: !Ref JwtKeysDataTable
+          KEY_ROTATION_FREQUENCY: !Ref KeyRotationFrequency
       Events:
         CWSchedule:
           Type: ScheduleV2
           Properties:
-            ScheduleExpression: !Sub rate(${Frequency} day)
+            ScheduleExpression: !Sub rate(${KeyRotationFrequency} day)
             Name: ScheduleKeyRotation
             Description: Schedule key rotation
 
@@ -79,6 +134,12 @@ Resources:
                   StringEquals:
                     kms:ViaService: "lambda.amazonaws.com"
                     kms:CallerAccount: !Sub "${AWS::AccountId}"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*'
 
   # This is a Lambda function config associated with the source code: get-jwks.ts
   GetJWKSFunction:

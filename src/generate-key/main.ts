@@ -3,11 +3,22 @@ import {
   DynamoDBDocumentClient,
   QueryCommand,
   PutCommand,
+  DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
-import { KMSClient, CreateKeyCommand, CreateAliasCommandInput, CreateAliasCommand } from "@aws-sdk/client-kms";
 
-const JWT_KEYS_DATA_TABLE = process.env.JWT_KEYS_DATA_TABLE || "JwtKeysDataTable";
+import {
+  KMSClient,
+  CreateKeyCommand,
+  CreateAliasCommand,
+  ScheduleKeyDeletionCommand,
+} from "@aws-sdk/client-kms";
+
+const JWT_KEYS_DATA_TABLE =
+  process.env.JWT_KEYS_DATA_TABLE || "JwtKeysDataTable";
 const PREFIX = process.env.PREFIX || "test";
+const KEY_ROTATION_FREQUENCY = parseInt(
+  process.env.KEY_ROTATION_FREQUENCY || "90"
+);
 
 const dynamoDbClient = new DynamoDBClient({});
 const documentClient = DynamoDBDocumentClient.from(dynamoDbClient);
@@ -23,7 +34,6 @@ export const handler = async () => {
         ":prefixVal": PREFIX,
       },
       ScanIndexForward: false, // This will sort the results in descending order
-      Limit: 1,
     });
 
     const queryResult = await documentClient.send(queryCommand);
@@ -34,7 +44,7 @@ export const handler = async () => {
       queryResult.Items.length > 0 &&
       queryResult.Items[0]
     ) {
-      currentVersion = parseInt(queryResult.Items[0].version || 1, 10);
+      currentVersion = parseInt(queryResult.Items[0].version, 10);
     }
 
     const { KeyMetadata } = await kmsClient.send(
@@ -68,11 +78,37 @@ export const handler = async () => {
           version: newVersion,
           keyId: KeyMetadata.KeyId,
           expirationDate: new Date(
-            Date.now() + 45 * 24 * 60 * 60 * 1000
-          ).toISOString(), // 45 days from now
+            Date.now() + (KEY_ROTATION_FREQUENCY + 1) * 24 * 60 * 60 * 1000
+          ).toISOString(),
         },
       })
     );
+
+    // Delete the old key from DynamoDB
+    if (queryResult.Items && queryResult.Items.length > 0) {
+      for (let item of queryResult.Items) {
+        const currentDate = new Date();
+        const keyExpirationDate = new Date(item.expirationDate);
+        if (currentDate > keyExpirationDate) {
+          await documentClient.send(
+            new DeleteCommand({
+              TableName: JWT_KEYS_DATA_TABLE,
+              Key: {
+                prefix: PREFIX,
+                version: item.version,
+              },
+            })
+          );
+          // Mark the key for deletion in KMS
+          await kmsClient.send(
+            new ScheduleKeyDeletionCommand({
+              KeyId: item.keyId,
+              PendingWindowInDays: 7,
+            })
+          );
+        }
+      }
+    }
 
     return {
       statusCode: 200,

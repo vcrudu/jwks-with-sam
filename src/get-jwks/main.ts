@@ -44,11 +44,7 @@ export const handler = async () => {
     for (const keyDataItem of Items) {
       const currentDate = new Date();
       const keyExpirationDate = new Date(keyDataItem.expirationDate); // Assuming expirationDate is stored as a string in ISO format
-
-      console.log("Current date:", currentDate);
-      console.log("Key expiration date:", keyExpirationDate);
-      console.log("currentDate <= keyExpirationDate:", currentDate <= keyExpirationDate);
-      // If the key is not expired or it's the latest key, add it to the JWKS
+      // If the key is not expired add it to the JWKS
       if (currentDate <= keyExpirationDate) {
         const keyOutput = await kmsClient.send<
           GetPublicKeyCommandInput,
@@ -63,6 +59,7 @@ export const handler = async () => {
           await keystore.add(publicKey, 'spki', {
             alg: 'RS512',
             use: 'sig',
+            kid: `${keyDataItem.prefix}-${keyDataItem.version}`
           });
         } else {
           throw new Error("Failed to fetch public key from KMS");

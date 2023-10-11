@@ -9,7 +9,10 @@
     "@aws-sdk/lib-dynamodb": "^3.425.0",
     "aws-lambda": "^1.0.7",
     "aws-sdk": "^2.1472.0",
-    "node-jose": "^2.2.0"
+    "axios": "^1.5.1",
+    "node-jose": "^2.2.0",
+    "qs": "^6.11.2",
+    "uuid": "^9.0.1"
   },
   "scripts": {
     "preinstall": "npx only-allow pnpm",
@@ -25,6 +28,8 @@
     "@types/aws-lambda": "^8.10.123",
     "@types/node": "^20.8.2",
     "@types/node-jose": "^1.1.11",
+    "@types/qs": "^6.9.8",
+    "@types/uuid": "^9.0.5",
     "aws-sam-webpack-plugin": "^0.13.0",
     "rimraf": "^5.0.5",
     "ts-loader": "^9.5.0",
